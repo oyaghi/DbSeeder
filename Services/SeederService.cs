@@ -1,6 +1,7 @@
 ﻿using Bogus;
 using DbSeeder.Interfaces;
 using DbSeeder.Models;
+using EFCore.BulkExtensions;
 using Microsoft.EntityFrameworkCore;
 
 namespace DbSeeder.Services;
@@ -62,24 +63,26 @@ public class SeederService : ISeederService
     public async Task Seed(DbContext dbContext, CancellationToken cancellationToken)
     {
         const int batchSize = 500;
+        var config = new BulkConfig
+        {
+            SetOutputIdentity = true,
+            PreserveInsertOrder = true
+        };
 
         var companyFaker = new Faker<Company>()
             .RuleFor(c => c.Name, f => f.Company.CompanyName())
             .RuleFor(c => c.Location, f => f.Address.City());
 
         var companies = companyFaker.Generate(batchSize / 2);
+        await dbContext.BulkInsertAsync(companies, config, cancellationToken: cancellationToken);
 
         var employeeFaker = new Faker<Employee>()
             .RuleFor(e => e.FullName, f => f.Person.FullName)
-            .RuleFor(e => e.Company, f => f.PickRandom(companies))
             .RuleFor(e => e.Position, f => f.PickRandom(_positions))
+            .RuleFor(e => e.CompanyId, f => f.PickRandom(companies).Id)
             .RuleFor(e => e.Salary, f => f.Finance.Amount(10000, 100000));
 
         var employees = employeeFaker.Generate(batchSize * 2);
-
-        dbContext.AddRange(companies);
-        dbContext.AddRange(employees);
-
-        await dbContext.SaveChangesAsync(cancellationToken);
+        await dbContext.BulkInsertAsync(employees, config, cancellationToken: cancellationToken);
     }
 }
